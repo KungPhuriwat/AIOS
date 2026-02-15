@@ -1,0 +1,13 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime data/logs
+data/*.log
+data/*.legacy-*
+data/*.json
+!data/.gitkeep
+
+# Local env
+.env

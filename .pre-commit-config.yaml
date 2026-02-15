@@ -1,0 +1,21 @@
+﻿repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-security
+        name: pytest security hardening tests
+        entry: python -m pytest -q tests/test_permissions.py tests/test_audit.py tests/test_orchestrator.py
+        language: system
+        pass_filenames: false
+
+      - id: pytest-all
+        name: pytest full suite
+        entry: python -m pytest -q
+        language: system
+        pass_filenames: false
