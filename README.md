@@ -23,6 +23,7 @@ MVP นี้เป็นชั้น AI ครอบ OS แบบ "ควบค
 - `src/ai_os/core/env_loader.py` โหลดค่า `.env`
 - `src/ai_os/agents/coding_agent.py` provider router และ coding agent
 - `src/ai_os/main.py` CLI สำหรับใช้งาน
+- `scripts/checklist_10min.py` สคริปต์ทดสอบครบชุดแบบคำสั่งเดียว
 
 ## เริ่มใช้งานเร็ว
 1. คัดลอกไฟล์ตัวอย่าง
@@ -91,11 +92,23 @@ python -m src.ai_os.main
 - ไฟล์ audit เก่ารูปแบบเดิมจะถูก backup และ migrate อัตโนมัติ
 - ตรวจ chain integrity ผ่าน `show audit status`
 
+## 10-Minute Checklist (คำสั่งเดียว)
+รัน:
+```powershell
+python scripts/checklist_10min.py
+```
+
+สิ่งที่สคริปต์ตรวจให้:
+- `pytest` ทั้งหมด
+- `pre-commit` ทั้งหมด
+- provider/notify/audit health
+- security bypass regression (`rm`, `del`, `erase obfuscation`)
+
 ## Pre-commit Security Gates
 ตั้งค่าหนึ่งครั้ง:
 ```powershell
 python -m pip install pre-commit
-pre-commit install
+python -m pre_commit install
 ```
 
 สิ่งที่จะรันก่อน commit:
@@ -105,7 +118,7 @@ pre-commit install
 
 รันตรวจเองทุกไฟล์:
 ```powershell
-pre-commit run --all-files
+python -m pre_commit run --all-files
 ```
 
 ## CI
