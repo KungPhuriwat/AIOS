@@ -33,3 +33,16 @@ def test_run_single_command_train(tmp_path: Path) -> None:
     out = run_single_command(app, "train python 2", interactive_ops_confirm=False)
     assert out["ok"]
     assert out["rounds"] == 2
+
+
+def test_run_single_command_queue_and_show_job(tmp_path: Path) -> None:
+    app = AIOSOrchestrator(tmp_path)
+    submitted = run_single_command(
+        app, "queue train python 2", interactive_ops_confirm=False
+    )
+    assert submitted["ok"]
+    app.jobs.wait(submitted["job_id"], timeout_sec=3)
+    row = run_single_command(
+        app, f"show job {submitted['job_id']}", interactive_ops_confirm=False
+    )
+    assert row["ok"]

@@ -17,6 +17,10 @@ Commands:
 - ops: <prompt>
 - benchmark <language>
 - train <language> [rounds]
+- queue benchmark <language>
+- queue train <language> [rounds]
+- show jobs
+- show job <job_id>
 - show dashboard
 - show policy
 - show skills
@@ -71,6 +75,28 @@ def run_single_command(
             except ValueError:
                 rounds = 3
         return app.run_training_cycle(language=language, rounds=rounds)
+
+    if cmd.startswith("queue benchmark "):
+        language = cmd.split(" ", 2)[2].strip()
+        return app.submit_benchmark_job(language)
+
+    if cmd.startswith("queue train "):
+        parts = cmd.split()
+        language = parts[2].strip() if len(parts) > 2 else "python"
+        rounds = 3
+        if len(parts) > 3:
+            try:
+                rounds = int(parts[3])
+            except ValueError:
+                rounds = 3
+        return app.submit_training_job(language=language, rounds=rounds)
+
+    if cmd == "show jobs":
+        return app.list_jobs()
+
+    if cmd.startswith("show job "):
+        job_id = cmd.split(" ", 2)[2].strip()
+        return app.get_job(job_id)
 
     if cmd == "show dashboard":
         return app.show_dashboard()

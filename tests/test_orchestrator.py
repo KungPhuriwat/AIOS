@@ -65,3 +65,16 @@ def test_orchestrator_training_cycle(tmp_path: Path, monkeypatch) -> None:
     assert out["ok"]
     assert out["rounds"] == 2
     assert len(out["history"]) == 2
+
+
+def test_orchestrator_job_submission_and_poll(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_LLM_PROVIDER", "fallback")
+    app = AIOSOrchestrator(tmp_path)
+    submitted = app.submit_training_job("python", rounds=2)
+    assert submitted["ok"]
+    row = app.jobs.wait(submitted["job_id"], timeout_sec=3)
+    assert row is not None
+    assert row["status"] == "completed"
+    fetched = app.get_job(submitted["job_id"])
+    assert fetched["ok"]
+    assert fetched["job"]["job_id"] == submitted["job_id"]

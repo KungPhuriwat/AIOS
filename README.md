@@ -12,6 +12,7 @@ MVP นี้เป็นชั้น AI ครอบ OS แบบ "ควบค
 - แจ้งเตือนออกนอกเครื่อง (LINE/Discord/Email)
 - มี signed audit log แบบ HMAC chain (tamper-evident)
 - มี HTTP API server สำหรับ integration testing/automation
+- มี Async Job Queue สำหรับงาน benchmark/train แบบ background
 
 ## เริ่มใช้งานเร็ว
 1. คัดลอกไฟล์ตัวอย่าง
@@ -37,6 +38,7 @@ python -m src.ai_os.main --run "show policy"
 python -m src.ai_os.main --run "show dashboard" --run "test provider"
 python -m src.ai_os.main --run "ops: echo hello" --approve-ops
 python -m src.ai_os.main --run "train python 5"
+python -m src.ai_os.main --run "queue train python 5" --run "show jobs"
 ```
 
 ## API Server Mode
@@ -55,6 +57,8 @@ $env:AIOS_API_TOKEN = "<token>"
 curl http://127.0.0.1:8787/health
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:8787/dashboard
 curl -X POST http://127.0.0.1:8787/code -H "Content-Type: application/json" -d '{"language":"python","prompt":"write robust parser"}'
+curl -X POST http://127.0.0.1:8787/jobs/train -H "Content-Type: application/json" -d '{"language":"python","rounds":5}'
+curl http://127.0.0.1:8787/jobs
 ```
 
 Endpoints:
@@ -65,10 +69,14 @@ Endpoints:
 - `GET /provider`
 - `GET /notify`
 - `GET /audit/status`
+- `GET /jobs`
+- `GET /jobs/{job_id}`
 - `POST /code` `{language,prompt}`
 - `POST /ops` `{prompt,approved_by_user}`
 - `POST /benchmark` `{language}`
 - `POST /train` `{language,rounds}`
+- `POST /jobs/benchmark` `{language}`
+- `POST /jobs/train` `{language,rounds}`
 - `POST /provider/test`
 
 ## Compile เป็น .exe (Windows)
@@ -89,6 +97,10 @@ powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1 -Clean -Smoke
 - `ops: echo hello`
 - `benchmark python`
 - `train python 5`
+- `queue benchmark python`
+- `queue train python 5`
+- `show jobs`
+- `show job <job_id>`
 - `show dashboard`
 - `show policy`
 - `show skills`

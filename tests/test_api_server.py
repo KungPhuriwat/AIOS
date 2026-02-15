@@ -55,7 +55,7 @@ def test_api_health_and_auth(tmp_path: Path) -> None:
         server.server_close()
 
 
-def test_api_code_and_benchmark(tmp_path: Path) -> None:
+def test_api_code_benchmark_train_and_jobs(tmp_path: Path) -> None:
     app = AIOSOrchestrator(tmp_path)
     server = create_api_server(app, host="127.0.0.1", port=0, token="")
     port = server.server_port
@@ -89,6 +89,27 @@ def test_api_code_and_benchmark(tmp_path: Path) -> None:
         assert s == 200
         assert train_body["ok"]
         assert train_body["rounds"] == 2
+
+        s, job_submit = _urlopen_json(
+            f"http://127.0.0.1:{port}/jobs/train",
+            method="POST",
+            payload={"language": "python", "rounds": 2},
+        )
+        assert s == 200
+        assert job_submit["ok"]
+        job_id = job_submit["job_id"]
+
+        _ = app.jobs.wait(job_id, timeout_sec=3)
+
+        s, job_row = _urlopen_json(f"http://127.0.0.1:{port}/jobs/{job_id}")
+        assert s == 200
+        assert job_row["ok"]
+        assert job_row["job"]["job_id"] == job_id
+
+        s, jobs_list = _urlopen_json(f"http://127.0.0.1:{port}/jobs")
+        assert s == 200
+        assert jobs_list["ok"]
+        assert isinstance(jobs_list["jobs"], list)
     finally:
         server.shutdown()
         server.server_close()

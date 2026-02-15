@@ -10,6 +10,7 @@ from .audit import SignedAuditLogger
 from .benchmark import CodingBenchmarkEngine
 from .executor import SystemExecutor
 from .honesty import HonestyLayer
+from .jobs import JobManager
 from .learner import LearningOutcome, SelfLearner
 from .models import TaskRequest, TaskResult
 from .notifier import Notifier
@@ -39,6 +40,8 @@ class AIOSOrchestrator:
         self.honesty = HonestyLayer()
         self.benchmark = CodingBenchmarkEngine()
         self.coding_agent = CodingAgent()
+        self.jobs = JobManager()
+
         self.audit_path = data_dir / "audit.log"
         self.audit = SignedAuditLogger(self.audit_path)
 
@@ -215,6 +218,44 @@ class AIOSOrchestrator:
         self._audit("training_cycle", payload)
         return payload
 
+    def submit_training_job(self, language: str, rounds: int = 3) -> dict:
+        payload = {"language": language, "rounds": rounds}
+        job_id = self.jobs.submit(
+            job_type="train",
+            payload=payload,
+            fn=lambda p: self.run_training_cycle(
+                str(p.get("language", "python")), int(p.get("rounds", 3))
+            ),
+        )
+        out = {"ok": True, "job_id": job_id, "job_type": "train", "payload": payload}
+        self._audit("job_submitted", out)
+        return out
+
+    def submit_benchmark_job(self, language: str) -> dict:
+        payload = {"language": language}
+        job_id = self.jobs.submit(
+            job_type="benchmark",
+            payload=payload,
+            fn=lambda p: self.run_benchmark(str(p.get("language", "python"))),
+        )
+        out = {
+            "ok": True,
+            "job_id": job_id,
+            "job_type": "benchmark",
+            "payload": payload,
+        }
+        self._audit("job_submitted", out)
+        return out
+
+    def get_job(self, job_id: str) -> dict:
+        row = self.jobs.get(job_id)
+        if row is None:
+            return {"ok": False, "error": "job_not_found", "job_id": job_id}
+        return {"ok": True, "job": row}
+
+    def list_jobs(self, limit: int = 20) -> dict:
+        return {"ok": True, "jobs": self.jobs.list(limit=limit)}
+
     def show_skills(self) -> dict[str, dict]:
         return self.registry.get_all()
 
@@ -255,6 +296,7 @@ class AIOSOrchestrator:
             "skills_count": len(skills),
             "top_skills": top_skills,
             "latest_changes": self.registry.latest_changes(limit=5),
+            "jobs": self.jobs.list(limit=5),
         }
 
     def test_provider(self) -> dict:

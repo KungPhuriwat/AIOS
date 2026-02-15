@@ -46,6 +46,15 @@ def _make_handler(app: AIOSOrchestrator, token: str):
                 )
                 return
 
+            if self.path == "/jobs":
+                self._json(self._app.list_jobs())
+                return
+
+            if self.path.startswith("/jobs/"):
+                job_id = self.path.split("/jobs/", 1)[1].strip()
+                self._json(self._app.get_job(job_id))
+                return
+
             routes = {
                 "/dashboard": self._app.show_dashboard,
                 "/policy": self._app.show_policy_status,
@@ -108,6 +117,19 @@ def _make_handler(app: AIOSOrchestrator, token: str):
                 rounds = int(payload.get("rounds", 3))
                 out = self._app.run_training_cycle(language=language, rounds=rounds)
                 self._json(out)
+                return
+
+            if self.path == "/jobs/benchmark":
+                language = str(payload.get("language", "python")).strip()
+                self._json(self._app.submit_benchmark_job(language=language))
+                return
+
+            if self.path == "/jobs/train":
+                language = str(payload.get("language", "python")).strip()
+                rounds = int(payload.get("rounds", 3))
+                self._json(
+                    self._app.submit_training_job(language=language, rounds=rounds)
+                )
                 return
 
             if self.path == "/provider/test":
