@@ -12,7 +12,7 @@ MVP นี้เป็นชั้น AI ครอบ OS แบบ "ควบค
 - แจ้งเตือนออกนอกเครื่อง (LINE/Discord/Email)
 - มี signed audit log แบบ HMAC chain (tamper-evident)
 - มี HTTP API server สำหรับ integration testing/automation
-- มี Async Job Queue สำหรับงาน benchmark/train แบบ background
+- มี Async Job Queue แบบ persistent (เก็บสถานะลง `data/jobs.json`)
 
 ## เริ่มใช้งานเร็ว
 1. คัดลอกไฟล์ตัวอย่าง
@@ -23,6 +23,8 @@ Copy-Item .env.example .env
 - `AIOS_LLM_PROVIDER=fallback|openai|ollama|opencode`
 - `AIOS_OPS_MODE=read|admin`
 - `AIOS_ENABLE_OPS_EXEC=1` เพื่อรันคำสั่ง ops จริง
+- `AIOS_JOBS_MAX=500` จำนวน job สูงสุดที่เก็บไว้
+- `AIOS_JOBS_RETENTION_DAYS=7` อายุสูงสุดของงานสถานะ terminal ก่อน cleanup
 3. (แนะนำ) ตั้ง secret สำหรับ signed audit
 ```powershell
 $env:AIOS_AUDIT_SECRET = "<strong_random_secret>"
@@ -39,6 +41,7 @@ python -m src.ai_os.main --run "show dashboard" --run "test provider"
 python -m src.ai_os.main --run "ops: echo hello" --approve-ops
 python -m src.ai_os.main --run "train python 5"
 python -m src.ai_os.main --run "queue train python 5" --run "show jobs"
+python -m src.ai_os.main --run "show jobs stats"
 ```
 
 ## API Server Mode
@@ -70,6 +73,7 @@ Endpoints:
 - `GET /notify`
 - `GET /audit/status`
 - `GET /jobs`
+- `GET /jobs/stats`
 - `GET /jobs/{job_id}`
 - `POST /code` `{language,prompt}`
 - `POST /ops` `{prompt,approved_by_user}`
@@ -77,6 +81,9 @@ Endpoints:
 - `POST /train` `{language,rounds}`
 - `POST /jobs/benchmark` `{language}`
 - `POST /jobs/train` `{language,rounds}`
+- `POST /jobs/cancel` `{job_id}`
+- `POST /jobs/retry` `{job_id}`
+- `POST /jobs/cleanup` `{retention_days?}`
 - `POST /provider/test`
 
 ## Compile เป็น .exe (Windows)
@@ -100,7 +107,11 @@ powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1 -Clean -Smoke
 - `queue benchmark python`
 - `queue train python 5`
 - `show jobs`
+- `show jobs stats`
 - `show job <job_id>`
+- `cancel job <job_id>`
+- `retry job <job_id>`
+- `cleanup jobs [retention_days]`
 - `show dashboard`
 - `show policy`
 - `show skills`

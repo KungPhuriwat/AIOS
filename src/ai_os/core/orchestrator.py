@@ -10,7 +10,7 @@ from .audit import SignedAuditLogger
 from .benchmark import CodingBenchmarkEngine
 from .executor import SystemExecutor
 from .honesty import HonestyLayer
-from .jobs import JobManager
+from .jobs import JobCanceledError, JobManager
 from .learner import LearningOutcome, SelfLearner
 from .models import TaskRequest, TaskResult
 from .notifier import Notifier
@@ -40,7 +40,13 @@ class AIOSOrchestrator:
         self.honesty = HonestyLayer()
         self.benchmark = CodingBenchmarkEngine()
         self.coding_agent = CodingAgent()
-        self.jobs = JobManager()
+        jobs_max = _env_int("AIOS_JOBS_MAX", 500)
+        jobs_retention_days = _env_float("AIOS_JOBS_RETENTION_DAYS", 7.0)
+        self.jobs = JobManager(
+            store_path=data_dir / "jobs.json",
+            max_jobs=jobs_max,
+            retention_days=jobs_retention_days,
+        )
 
         self.audit_path = data_dir / "audit.log"
         self.audit = SignedAuditLogger(self.audit_path)
@@ -190,11 +196,21 @@ class AIOSOrchestrator:
         self._audit("benchmark_task", payload)
         return payload
 
-    def run_training_cycle(self, language: str, rounds: int = 3) -> dict:
+    def run_training_cycle(
+        self,
+        language: str,
+        rounds: int = 3,
+        progress_cb=None,
+        should_cancel=None,
+    ) -> dict:
         total_rounds = max(1, min(20, int(rounds)))
         before = self.registry.get_all().get(language, {}).get("level", 5.0)
         rounds_out: list[dict] = []
         for idx in range(total_rounds):
+            if should_cancel is not None and should_cancel():
+                raise JobCanceledError("cancel_requested")
+            if progress_cb is not None:
+                progress_cb(idx / total_rounds, f"round_{idx + 1}_start")
             bench = self.run_benchmark(language)
             rounds_out.append(
                 {
@@ -204,6 +220,8 @@ class AIOSOrchestrator:
                     "avg_confidence": bench["benchmark"]["avg_confidence"],
                 }
             )
+            if progress_cb is not None:
+                progress_cb((idx + 1) / total_rounds, f"round_{idx + 1}_done")
 
         after = self.registry.get_all().get(language, {}).get("level", before)
         payload = {
@@ -223,8 +241,11 @@ class AIOSOrchestrator:
         job_id = self.jobs.submit(
             job_type="train",
             payload=payload,
-            fn=lambda p: self.run_training_cycle(
-                str(p.get("language", "python")), int(p.get("rounds", 3))
+            fn=lambda p, progress, should_cancel: self.run_training_cycle(
+                str(p.get("language", "python")),
+                int(p.get("rounds", 3)),
+                progress_cb=progress,
+                should_cancel=should_cancel,
             ),
         )
         out = {"ok": True, "job_id": job_id, "job_type": "train", "payload": payload}
@@ -233,10 +254,21 @@ class AIOSOrchestrator:
 
     def submit_benchmark_job(self, language: str) -> dict:
         payload = {"language": language}
+
+        def bench_fn(p: dict, progress, should_cancel) -> dict:
+            if should_cancel():
+                raise JobCanceledError("cancel_requested")
+            progress(0.2, "benchmark_start")
+            out = self.run_benchmark(str(p.get("language", "python")))
+            if should_cancel():
+                raise JobCanceledError("cancel_requested")
+            progress(1.0, "benchmark_done")
+            return out
+
         job_id = self.jobs.submit(
             job_type="benchmark",
             payload=payload,
-            fn=lambda p: self.run_benchmark(str(p.get("language", "python"))),
+            fn=bench_fn,
         )
         out = {
             "ok": True,
@@ -253,8 +285,62 @@ class AIOSOrchestrator:
             return {"ok": False, "error": "job_not_found", "job_id": job_id}
         return {"ok": True, "job": row}
 
+    def cancel_job(self, job_id: str) -> dict:
+        ok, reason = self.jobs.cancel(job_id)
+        out = {"ok": ok, "job_id": job_id, "reason": reason}
+        self._audit("job_cancel", out)
+        return out
+
+    def retry_job(self, job_id: str) -> dict:
+        row = self.jobs.get(job_id)
+        if row is None:
+            return {"ok": False, "error": "job_not_found", "job_id": job_id}
+
+        if row.get("status") not in {"completed", "failed", "canceled"}:
+            return {
+                "ok": False,
+                "error": "job_not_retryable",
+                "job_id": job_id,
+                "status": row.get("status"),
+            }
+
+        payload = row.get("payload") or {}
+        job_type = str(row.get("job_type", "")).strip().lower()
+        if job_type == "train":
+            language = str(payload.get("language", "python"))
+            rounds = int(payload.get("rounds", 3))
+            submitted = self.submit_training_job(language=language, rounds=rounds)
+        elif job_type == "benchmark":
+            language = str(payload.get("language", "python"))
+            submitted = self.submit_benchmark_job(language=language)
+        else:
+            return {
+                "ok": False,
+                "error": "unsupported_job_type",
+                "job_id": job_id,
+                "job_type": job_type,
+            }
+
+        out = {
+            "ok": True,
+            "retried_from": job_id,
+            "new_job_id": submitted["job_id"],
+            "job_type": submitted["job_type"],
+            "payload": submitted["payload"],
+        }
+        self._audit("job_retry", out)
+        return out
+
     def list_jobs(self, limit: int = 20) -> dict:
         return {"ok": True, "jobs": self.jobs.list(limit=limit)}
+
+    def job_stats(self) -> dict:
+        return {"ok": True, "stats": self.jobs.stats()}
+
+    def cleanup_jobs(self, retention_days: float | None = None) -> dict:
+        out = self.jobs.cleanup(retention_days=retention_days)
+        self._audit("job_cleanup", out)
+        return out
 
     def show_skills(self) -> dict[str, dict]:
         return self.registry.get_all()
@@ -297,6 +383,7 @@ class AIOSOrchestrator:
             "top_skills": top_skills,
             "latest_changes": self.registry.latest_changes(limit=5),
             "jobs": self.jobs.list(limit=5),
+            "job_stats": self.jobs.stats(),
         }
 
     def test_provider(self) -> dict:
@@ -328,3 +415,19 @@ class AIOSOrchestrator:
             }
             self._audit("provider_test_error", payload)
             return payload
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return default

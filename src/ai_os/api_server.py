@@ -50,6 +50,10 @@ def _make_handler(app: AIOSOrchestrator, token: str):
                 self._json(self._app.list_jobs())
                 return
 
+            if self.path == "/jobs/stats":
+                self._json(self._app.job_stats())
+                return
+
             if self.path.startswith("/jobs/"):
                 job_id = self.path.split("/jobs/", 1)[1].strip()
                 self._json(self._app.get_job(job_id))
@@ -130,6 +134,29 @@ def _make_handler(app: AIOSOrchestrator, token: str):
                 self._json(
                     self._app.submit_training_job(language=language, rounds=rounds)
                 )
+                return
+
+            if self.path == "/jobs/cancel":
+                job_id = str(payload.get("job_id", "")).strip()
+                self._json(self._app.cancel_job(job_id))
+                return
+
+            if self.path == "/jobs/retry":
+                job_id = str(payload.get("job_id", "")).strip()
+                self._json(self._app.retry_job(job_id))
+                return
+
+            if self.path == "/jobs/cleanup":
+                raw = payload.get("retention_days")
+                try:
+                    retention_days = None if raw is None else float(raw)
+                except (TypeError, ValueError):
+                    self._json(
+                        {"ok": False, "error": "invalid_retention_days"},
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                self._json(self._app.cleanup_jobs(retention_days=retention_days))
                 return
 
             if self.path == "/provider/test":

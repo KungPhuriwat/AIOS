@@ -20,7 +20,11 @@ Commands:
 - queue benchmark <language>
 - queue train <language> [rounds]
 - show jobs
+- show jobs stats
 - show job <job_id>
+- cancel job <job_id>
+- retry job <job_id>
+- cleanup jobs [retention_days]
 - show dashboard
 - show policy
 - show skills
@@ -94,9 +98,30 @@ def run_single_command(
     if cmd == "show jobs":
         return app.list_jobs()
 
+    if cmd == "show jobs stats":
+        return app.job_stats()
+
     if cmd.startswith("show job "):
         job_id = cmd.split(" ", 2)[2].strip()
         return app.get_job(job_id)
+
+    if cmd.startswith("cancel job "):
+        job_id = cmd.split(" ", 2)[2].strip()
+        return app.cancel_job(job_id)
+
+    if cmd.startswith("retry job "):
+        job_id = cmd.split(" ", 2)[2].strip()
+        return app.retry_job(job_id)
+
+    if cmd == "cleanup jobs" or cmd.startswith("cleanup jobs "):
+        parts = cmd.split()
+        retention_days = None
+        if len(parts) > 2:
+            try:
+                retention_days = float(parts[2])
+            except ValueError:
+                return {"ok": False, "error": "invalid_retention_days"}
+        return app.cleanup_jobs(retention_days=retention_days)
 
     if cmd == "show dashboard":
         return app.show_dashboard()
