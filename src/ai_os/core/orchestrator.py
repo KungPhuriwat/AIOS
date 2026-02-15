@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
 from dataclasses import asdict
 from pathlib import Path
 from time import perf_counter
 
 from ..agents.coding_agent import CodingAgent
 from .audit import SignedAuditLogger
+from .benchmark import CodingBenchmarkEngine
+from .executor import SystemExecutor
 from .honesty import HonestyLayer
 from .learner import LearningOutcome, SelfLearner
 from .models import TaskRequest, TaskResult
@@ -19,9 +22,22 @@ class AIOSOrchestrator:
         self.data_dir = data_dir
         self.registry = SkillRegistry(data_dir / "skills.json")
         self.notifier = Notifier(data_dir / "notifications.log")
-        self.gateway = PermissionGateway(default_mode="read")
+
+        ops_mode = os.getenv("AIOS_OPS_MODE", "read").strip().lower()
+        enable_exec = os.getenv("AIOS_ENABLE_OPS_EXEC", "1").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.gateway = PermissionGateway(default_mode=ops_mode)
+        self.executor = SystemExecutor(
+            mode=ops_mode, root_dir=Path.cwd(), enable_exec=enable_exec
+        )
+
         self.learner = SelfLearner()
         self.honesty = HonestyLayer()
+        self.benchmark = CodingBenchmarkEngine()
         self.coding_agent = CodingAgent()
         self.audit_path = data_dir / "audit.log"
         self.audit = SignedAuditLogger(self.audit_path)
@@ -29,6 +45,9 @@ class AIOSOrchestrator:
         migration = self.audit.migrate_legacy()
         if migration.get("migrated"):
             self._audit("audit_migrated", migration)
+        repaired = self.audit.repair_invalid_chain()
+        if repaired.get("repaired"):
+            self._audit("audit_repaired", repaired)
 
     def _audit(self, event_type: str, detail: dict) -> None:
         self.audit.append(event_type=event_type, detail=detail)
@@ -46,31 +65,51 @@ class AIOSOrchestrator:
 
         if request.task_type == "code":
             result = self.coding_agent.run(request.prompt, request.language)
-            payload = self._post_process_skill(result, request.language or "python")
+            payload = self._post_process_skill(
+                result, request.language or "python", request.prompt
+            )
             self._audit("code_task", {"request": asdict(request), "result": payload})
             return payload
 
+        exec_result = self.executor.execute(
+            request.prompt, approved_by_user=approved_by_user
+        )
         result = TaskResult(
-            ok=True, output="งานระบบถูกอนุมัติ (MVP ยังไม่รันคำสั่งจริง)", confidence=0.8
+            ok=exec_result.ok,
+            output=exec_result.output,
+            confidence=0.88 if exec_result.ok else 0.35,
+            evidence=["system-executor", f"returncode={exec_result.returncode}"],
+            inferred=False,
         )
         honesty = self.honesty.as_dict(result)
-        self._audit("ops_task", {"request": asdict(request), "honesty": honesty})
-        return {"ok": True, "output": result.output, "honesty": honesty}
+        payload = {
+            "ok": result.ok,
+            "output": result.output,
+            "returncode": exec_result.returncode,
+            "blocked": exec_result.blocked,
+            "reason": exec_result.reason,
+            "honesty": honesty,
+        }
+        self._audit("ops_task", {"request": asdict(request), "result": payload})
+        return payload
 
-    def _post_process_skill(self, result: TaskResult, language: str) -> dict:
+    def _post_process_skill(
+        self, result: TaskResult, language: str, prompt: str
+    ) -> dict:
         current = self.registry.get_all().get(language, {}).get("level", 5.0)
-        outcome = LearningOutcome(
-            skill_name=language,
-            success_rate=0.9 if result.ok else 0.4,
-            test_pass_rate=0.88,
-            bug_rate=0.08 if result.ok else 0.3,
+        outcome: LearningOutcome = self.benchmark.evaluate_task(
+            language=language, prompt=prompt, result=result
         )
         score = self.learner.score(outcome)
         new_level = self.learner.next_level(current, score)
         updated = self.registry.upsert(language, new_level, score)
 
         summary = self._build_skill_summary(
-            language, current, updated["level"], score, result.ok
+            language,
+            current,
+            updated["level"],
+            score,
+            result.ok,
         )
         fanout = self.notifier.notify(summary)
         honesty = self.honesty.as_dict(result)
@@ -81,6 +120,12 @@ class AIOSOrchestrator:
             "confidence": result.confidence,
             "honesty": honesty,
             "skill": updated,
+            "benchmark": {
+                "success_rate": round(outcome.success_rate, 2),
+                "test_pass_rate": round(outcome.test_pass_rate, 2),
+                "bug_rate": round(outcome.bug_rate, 2),
+                "score": round(score, 2),
+            },
             "notification": {
                 "summary": summary,
                 "local_log": fanout.local_log,
@@ -103,6 +148,45 @@ class AIOSOrchestrator:
             f"new={round(new_level, 2)} score={round(score, 2)} task_ok={task_ok}"
         )
 
+    def run_benchmark(self, language: str) -> dict:
+        summary = self.benchmark.run_language_benchmark(self.coding_agent, language)
+        current = self.registry.get_all().get(language, {}).get("level", 5.0)
+        outcome = LearningOutcome(
+            skill_name=language,
+            success_rate=summary.avg_success_rate,
+            test_pass_rate=summary.avg_test_pass_rate,
+            bug_rate=summary.avg_bug_rate,
+        )
+        score = self.learner.score(outcome)
+        new_level = self.learner.next_level(current, score)
+        updated = self.registry.upsert(language, new_level, score)
+
+        msg = (
+            f"benchmark_update lang={language} old={round(current, 2)} "
+            f"new={updated['level']} score={round(score, 2)} confidence={round(summary.avg_confidence, 2)}"
+        )
+        fanout = self.notifier.notify(msg)
+        payload = {
+            "ok": True,
+            "language": language,
+            "benchmark": {
+                "avg_success_rate": round(summary.avg_success_rate, 2),
+                "avg_test_pass_rate": round(summary.avg_test_pass_rate, 2),
+                "avg_bug_rate": round(summary.avg_bug_rate, 2),
+                "avg_confidence": round(summary.avg_confidence, 2),
+                "score": round(score, 2),
+            },
+            "skill": updated,
+            "notification": {
+                "summary": msg,
+                "local_log": fanout.local_log,
+                "sent_channels": fanout.sent,
+                "failed_channels": fanout.failed,
+            },
+        }
+        self._audit("benchmark_task", payload)
+        return payload
+
     def show_skills(self) -> dict[str, dict]:
         return self.registry.get_all()
 
@@ -120,6 +204,30 @@ class AIOSOrchestrator:
 
     def show_audit_status(self) -> dict:
         return self.audit.verify_chain()
+
+    def show_policy_status(self) -> dict[str, str | bool]:
+        return {
+            "ops_mode": self.gateway.default_mode,
+            "platform": self.gateway.platform,
+            "ops_exec_enabled": self.executor.enable_exec,
+        }
+
+    def show_dashboard(self) -> dict:
+        skills = self.registry.get_all()
+        top_skills = sorted(
+            [{"language": k, **v} for k, v in skills.items()],
+            key=lambda x: x.get("level", 0.0),
+            reverse=True,
+        )[:3]
+        return {
+            "provider": self.show_provider_status(),
+            "notify": self.show_notify_status(),
+            "audit": self.show_audit_status(),
+            "policy": self.show_policy_status(),
+            "skills_count": len(skills),
+            "top_skills": top_skills,
+            "latest_changes": self.registry.latest_changes(limit=5),
+        }
 
     def test_provider(self) -> dict:
         started = perf_counter()

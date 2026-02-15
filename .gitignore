@@ -6,6 +6,7 @@ __pycache__/
 # Runtime data/logs
 data/*.log
 data/*.legacy-*
+data/*.invalid-*
 data/*.json
 !data/.gitkeep
 

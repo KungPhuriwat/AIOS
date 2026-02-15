@@ -12,6 +12,9 @@ AI OS CLI
 รูปแบบ:
 - code <language>: <prompt>
 - ops: <prompt>
+- benchmark <language>
+- show dashboard
+- show policy
 - show skills
 - show audit
 - show audit status
@@ -53,6 +56,19 @@ def main() -> None:
             print("bye")
             return
 
+        if line.startswith("benchmark "):
+            language = line.split(" ", 1)[1].strip()
+            print(app.run_benchmark(language))
+            continue
+
+        if line == "show dashboard":
+            print(app.show_dashboard())
+            continue
+
+        if line == "show policy":
+            print(app.show_policy_status())
+            continue
+
         if line == "show skills":
             print(app.show_skills())
             continue
@@ -84,7 +100,7 @@ def main() -> None:
 
         approved = False
         if req.task_type == "ops":
-            confirm = input("คำสั่งระบบ อนุมัติหรือไม่? [y/N]: ").strip().lower()
+            confirm = input("System command detected. Approve? [y/N]: ").strip().lower()
             approved = confirm == "y"
 
         print(app.handle(req, approved_by_user=approved))

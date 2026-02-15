@@ -36,3 +36,23 @@ def test_orchestrator_test_provider(tmp_path: Path, monkeypatch) -> None:
     assert isinstance(out["latency_ms"], float)
     assert "provider" in out
     assert "response_preview" in out
+
+
+def test_orchestrator_ops_exec_with_approval(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_OPS_MODE", "admin")
+    monkeypatch.setenv("AIOS_ENABLE_OPS_EXEC", "1")
+    app = AIOSOrchestrator(tmp_path)
+    out = app.handle(
+        TaskRequest(task_type="ops", prompt="echo ok"), approved_by_user=True
+    )
+    assert out["ok"]
+
+
+def test_orchestrator_benchmark_and_dashboard(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_LLM_PROVIDER", "fallback")
+    app = AIOSOrchestrator(tmp_path)
+    bench = app.run_benchmark("python")
+    dashboard = app.show_dashboard()
+    assert bench["ok"]
+    assert "benchmark" in bench
+    assert "top_skills" in dashboard

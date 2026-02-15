@@ -78,6 +78,24 @@ class SignedAuditLogger:
         self.path.write_text("", encoding="utf-8")
         return {"migrated": True, "legacy_lines": legacy_lines, "backup": str(backup)}
 
+    def repair_invalid_chain(self) -> dict[str, Any]:
+        status = self.verify_chain()
+        if status.get("ok", False):
+            return {"repaired": False, **status}
+
+        if not self.path.exists():
+            return {"repaired": False, **status}
+
+        stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        backup = self.path.with_name(f"{self.path.name}.invalid-{stamp}")
+        self.path.replace(backup)
+        self.path.write_text("", encoding="utf-8")
+        return {
+            "repaired": True,
+            "backup": str(backup),
+            "previous_status": status,
+        }
+
     def verify_chain(self) -> dict[str, Any]:
         if not self.path.exists():
             return {"ok": True, "entries": 0, "legacy_lines": 0}

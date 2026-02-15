@@ -53,3 +53,24 @@ def test_signed_audit_migrates_legacy_file(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == ""
     backup = Path(migration["backup"])
     assert backup.exists()
+
+
+def test_signed_audit_repairs_invalid_chain(tmp_path: Path) -> None:
+    path = tmp_path / "audit.log"
+    logger = SignedAuditLogger(path, secret="test-secret")
+    logger.append("event1", {"x": 1})
+    logger.append("event2", {"y": 2})
+
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[1]["entry_hash"] = "broken"
+    path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False, sort_keys=True) for r in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    repaired = logger.repair_invalid_chain()
+    assert repaired["repaired"]
+    assert path.exists()
+    assert path.read_text(encoding="utf-8") == ""
+    assert Path(repaired["backup"]).exists()
