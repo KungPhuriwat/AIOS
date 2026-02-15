@@ -187,6 +187,34 @@ class AIOSOrchestrator:
         self._audit("benchmark_task", payload)
         return payload
 
+    def run_training_cycle(self, language: str, rounds: int = 3) -> dict:
+        total_rounds = max(1, min(20, int(rounds)))
+        before = self.registry.get_all().get(language, {}).get("level", 5.0)
+        rounds_out: list[dict] = []
+        for idx in range(total_rounds):
+            bench = self.run_benchmark(language)
+            rounds_out.append(
+                {
+                    "round": idx + 1,
+                    "score": bench["benchmark"]["score"],
+                    "level": bench["skill"]["level"],
+                    "avg_confidence": bench["benchmark"]["avg_confidence"],
+                }
+            )
+
+        after = self.registry.get_all().get(language, {}).get("level", before)
+        payload = {
+            "ok": True,
+            "language": language,
+            "rounds": total_rounds,
+            "level_before": before,
+            "level_after": after,
+            "delta": round(after - before, 2),
+            "history": rounds_out,
+        }
+        self._audit("training_cycle", payload)
+        return payload
+
     def show_skills(self) -> dict[str, dict]:
         return self.registry.get_all()
 

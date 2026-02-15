@@ -56,3 +56,12 @@ def test_orchestrator_benchmark_and_dashboard(tmp_path: Path, monkeypatch) -> No
     assert bench["ok"]
     assert "benchmark" in bench
     assert "top_skills" in dashboard
+
+
+def test_orchestrator_training_cycle(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AIOS_LLM_PROVIDER", "fallback")
+    app = AIOSOrchestrator(tmp_path)
+    out = app.run_training_cycle("python", rounds=2)
+    assert out["ok"]
+    assert out["rounds"] == 2
+    assert len(out["history"]) == 2

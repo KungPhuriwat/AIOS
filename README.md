@@ -11,6 +11,7 @@ MVP นี้เป็นชั้น AI ครอบ OS แบบ "ควบค
 - รองรับ LLM provider จริง (OpenAI/Ollama/Opencode)
 - แจ้งเตือนออกนอกเครื่อง (LINE/Discord/Email)
 - มี signed audit log แบบ HMAC chain (tamper-evident)
+- มี HTTP API server สำหรับ integration testing/automation
 
 ## เริ่มใช้งานเร็ว
 1. คัดลอกไฟล์ตัวอย่าง
@@ -25,15 +26,69 @@ Copy-Item .env.example .env
 ```powershell
 $env:AIOS_AUDIT_SECRET = "<strong_random_secret>"
 ```
-4. รัน
+4. รัน CLI
 ```powershell
 python -m src.ai_os.main
+```
+
+## Non-interactive CLI (สำหรับ automation)
+```powershell
+python -m src.ai_os.main --run "show policy"
+python -m src.ai_os.main --run "show dashboard" --run "test provider"
+python -m src.ai_os.main --run "ops: echo hello" --approve-ops
+python -m src.ai_os.main --run "train python 5"
+```
+
+## API Server Mode
+รัน server:
+```powershell
+python -m src.ai_os.main --serve --host 127.0.0.1 --port 8787
+```
+
+ตั้ง token (แนะนำ):
+```powershell
+$env:AIOS_API_TOKEN = "<token>"
+```
+
+ตัวอย่างเรียก API:
+```powershell
+curl http://127.0.0.1:8787/health
+curl -H "Authorization: Bearer <token>" http://127.0.0.1:8787/dashboard
+curl -X POST http://127.0.0.1:8787/code -H "Content-Type: application/json" -d '{"language":"python","prompt":"write robust parser"}'
+```
+
+Endpoints:
+- `GET /health`
+- `GET /dashboard`
+- `GET /policy`
+- `GET /skills`
+- `GET /provider`
+- `GET /notify`
+- `GET /audit/status`
+- `POST /code` `{language,prompt}`
+- `POST /ops` `{prompt,approved_by_user}`
+- `POST /benchmark` `{language}`
+- `POST /train` `{language,rounds}`
+- `POST /provider/test`
+
+## Compile เป็น .exe (Windows)
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_exe.ps1 -Clean -Smoke
+```
+ไฟล์ที่ได้:
+- `dist/AIOS.exe`
+
+ทดสอบ executable:
+```powershell
+.\dist\AIOS.exe --run "show policy"
+.\dist\AIOS.exe --run "show dashboard"
 ```
 
 ## คำสั่ง CLI
 - `code python: เขียนฟังก์ชันหา fibonacci`
 - `ops: echo hello`
 - `benchmark python`
+- `train python 5`
 - `show dashboard`
 - `show policy`
 - `show skills`

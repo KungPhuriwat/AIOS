@@ -12,3 +12,8 @@ data/*.json
 
 # Local env
 .env
+
+# Build artifacts
+build/
+dist/
+*.spec
